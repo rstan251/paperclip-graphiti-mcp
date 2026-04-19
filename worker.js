@@ -284,16 +284,21 @@ const plugin = definePlugin({
 
         const best = scored[0];
         const lines = (best.episode.content || "").split("\n");
-        const nameLine = lines.find((l) => l.startsWith("Project:")) || "";
-        const clientLine = lines.find((l) => l.startsWith("Client:")) || "";
+        const field = (prefix) => {
+          const l = lines.find((l) => l.startsWith(prefix));
+          return l ? l.replace(prefix, "").trim() : null;
+        };
 
         return formatResult({
           match: {
             slug: best.slug,
-            name: nameLine.replace("Project: ", "").split("(")[0].trim(),
-            client: clientLine.replace("Client: ", "").trim(),
+            name: (field("Project: ") || "").split("(")[0].trim(),
+            client: field("Client: "),
             group_id: best.slug,
             confidence: best.score,
+            irt_contact_id: field("IRT Contact ID: "),
+            ghl_location_id: field("GHL Location ID: "),
+            ghl_pit: field("GHL PIT: "),
           },
           alternatives: scored.slice(1, 4).map((s) => ({
             slug: s.slug,
@@ -333,6 +338,18 @@ const plugin = definePlugin({
               items: { type: "string" },
               description: "Matching keywords — practice areas, tech, aliases (e.g. ['bankruptcy', 'milwaukee', 'MKE'])",
             },
+            irt_contact_id: {
+              type: "string",
+              description: "GHL contact ID for this client in IRT's own CRM",
+            },
+            ghl_location_id: {
+              type: "string",
+              description: "Client's own GHL sub-account location ID (if they have one)",
+            },
+            ghl_pit: {
+              type: "string",
+              description: "Client's GHL Private Integration Token (if they have one)",
+            },
           },
           required: ["slug", "name"],
         },
@@ -343,14 +360,22 @@ const plugin = definePlugin({
           name: params.name,
           client: params.client || null,
           keywords: params.keywords || [],
+          irt_contact_id: params.irt_contact_id || null,
+          ghl_location_id: params.ghl_location_id || null,
+          ghl_pit: params.ghl_pit || null,
           type: "project_registry",
         };
 
-        const episodeBody =
-          `Project: ${meta.name} (${meta.slug})\n` +
-          `Client: ${meta.client || "N/A"}\n` +
-          `Keywords: ${meta.keywords.join(", ")}\n` +
-          `Group ID: ${meta.slug}`;
+        const lines = [
+          `Project: ${meta.name} (${meta.slug})`,
+          `Client: ${meta.client || "N/A"}`,
+          `Keywords: ${meta.keywords.join(", ")}`,
+          `Group ID: ${meta.slug}`,
+        ];
+        if (meta.irt_contact_id) lines.push(`IRT Contact ID: ${meta.irt_contact_id}`);
+        if (meta.ghl_location_id) lines.push(`GHL Location ID: ${meta.ghl_location_id}`);
+        if (meta.ghl_pit) lines.push(`GHL PIT: ${meta.ghl_pit}`);
+        const episodeBody = lines.join("\n");
 
         const result = await callTool("add_memory", {
           name: `project:${meta.slug}`,
