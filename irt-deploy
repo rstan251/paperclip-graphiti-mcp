@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# IRT Deploy — wrangler deploy wrapper with Graphiti tracking
+# Usage: irt-deploy [wrangler deploy args...]
+# Run from any worker directory with a wrangler.toml
+
+# Auto-detect MCP URL: localhost on Mini, Tailscale from elsewhere
+if curl -s --connect-timeout 1 http://localhost:8000/health > /dev/null 2>&1; then
+  MCP_URL="${GRAPHITI_MCP_URL:-http://localhost:8000/mcp}"
+else
+  MCP_URL="${GRAPHITI_MCP_URL:-http://bertos-mac-mini.tailf323fd.ts.net:8000/mcp}"
+fi
+
+# Worker name → project slug mapping
+declare -A WORKER_PROJECT=(
+  [mke-intake]=mke [mke-lookup]=mke [mke-dashboard]=mke
+  [mejer-kpi]=aml [mejer-intake]=aml
+  [laputka-intake]=lpk [laputka-calendar]=lpk [laputka-roi]=lpk [laputka-calendar-production]=lpk
+  [breeden-clio-monitor]=brd
+  [westbrook-intake]=wbk [wbk-trustee]=wbk [lawpay-ghl-sync]=wbk [westbrook-cogent-training]=wbk
+  [martay-calendar]=mty
+  [rm-transcript]=wrk
+  [geller]=glr [geller-proposal]=glr
+  [ghl-ops]=nbos [irt-stats]=nbos [irt-sync]=nbos [irt-homepage]=nbos
+  [nbos-memory]=nbos [synthflow-manager]=nbos [voice-deploy]=nbos
+  [ghl-sms-gate]=nbos [email-lead-capture]=nbos [calendar-monitor]=nbos
+  [email-watcher]=nbos [lead-capture]=nbos [tg-router]=nbos
+  [noodlebot-llm]=nbos [ghl-proxy]=nbos [bull-trader]=nbos
+  [805law-calendar]=nbos [gemini-voice]=nbos [mycase-ghl-sync]=nbos
+  [ch13-calculator]=nbos [subscore]=nbos
+)
+
+if [ ! -f wrangler.toml ]; then
+  echo "ERROR: No wrangler.toml in current directory" >&2
+  exit 1
+fi
+
+WORKER_NAME=$(grep '^name' wrangler.toml | head -1 | sed 's/name *= *"\(.*\)"/\1/')
+ACCOUNT_ID=$(grep 'account_id' wrangler.toml | head -1 | sed 's/.*= *"\(.*\)"/\1/' || echo "")
+
+if [ -z "$WORKER_NAME" ]; then
+  echo "ERROR: Could not parse worker name from wrangler.toml" >&2
+  exit 1
+fi
+
+PROJECT="${WORKER_PROJECT[$WORKER_NAME]:-}"
+if [ -z "$PROJECT" ]; then
+  echo "WARN: Worker '$WORKER_NAME' not mapped to a project. Will log to 'nbos'." >&2
+  PROJECT="nbos"
+fi
+
+echo "=== IRT Deploy ==="
+echo "  Worker:  $WORKER_NAME"
+echo "  Project: $PROJECT"
+echo "  Account: ${ACCOUNT_ID:0:8}..."
+echo ""
+
+# Run wrangler deploy, pass through all args
+set +e
+npx wrangler deploy "$@"
+DEPLOY_EXIT=$?
+set -e
+
+if [ $DEPLOY_EXIT -ne 0 ]; then
+  # --dry-run exits non-zero but is not a failure
+  for arg in "$@"; do
+    if [ "$arg" = "--dry-run" ]; then
+      echo ""
+      echo "(dry-run complete — skipping Graphiti tracking)"
+      exit 0
+    fi
+  done
+  echo "ERROR: wrangler deploy failed (exit $DEPLOY_EXIT)" >&2
+  exit $DEPLOY_EXIT
+fi
+
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+GIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "no-git")
+GIT_MSG=$(git log -1 --format="%s" 2>/dev/null || echo "")
+GIT_BRANCH=$(git branch --show-current 2>/dev/null || echo "")
+DEPLOY_DIR=$(basename "$(pwd)")
+
+EPISODE="Deploy: $WORKER_NAME deployed at $TIMESTAMP. Git: $GIT_SHA ($GIT_BRANCH) — $GIT_MSG. Account: ${ACCOUNT_ID:-unknown}. Directory: $DEPLOY_DIR."
+
+# Initialize MCP session
+SESSION_ID=$(curl -s -D - "$MCP_URL" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"irt-deploy","version":"1.0.0"}}}' \
+  2>/dev/null | grep -i mcp-session-id | tr -d '\r' | cut -d' ' -f2 || true)
+
+if [ -z "$SESSION_ID" ]; then
+  echo "WARN: Could not connect to Graphiti MCP at $MCP_URL — deploy succeeded but not tracked" >&2
+  exit 0
+fi
+
+# Log to project group
+RESULT=$(curl -s -o /dev/null -w "%{http_code}" "$MCP_URL" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Mcp-Session-Id: $SESSION_ID" \
+  -d "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"add_memory\",\"arguments\":{\"name\":\"deploy:$WORKER_NAME:$GIT_SHA\",\"episode_body\":\"$EPISODE\",\"group_id\":\"$PROJECT\",\"source\":\"irt-deploy\",\"source_description\":\"Automated deployment log\"}}}")
+
+if [ "$RESULT" = "200" ]; then
+  echo ""
+  echo "✓ Tracked in Graphiti (project: $PROJECT, group_id: $PROJECT)"
+else
+  echo ""
+  echo "WARN: Graphiti tracking failed (HTTP $RESULT) — deploy still succeeded" >&2
+fi
