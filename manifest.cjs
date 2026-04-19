@@ -62,7 +62,7 @@ module.exports = {
       name: "register_project",
       displayName: "Register Project",
       description: "Register a new client or project so future sessions can be auto-routed to it. Stores GHL credentials for agents.",
-      parametersSchema: { type: "object", properties: { slug: { type: "string" }, name: { type: "string" }, client: { type: "string" }, keywords: { type: "array", items: { type: "string" } }, irt_contact_id: { type: "string" }, ghl_location_id: { type: "string" }, ghl_pit: { type: "string" } }, required: ["slug", "name"] },
+      parametersSchema: { type: "object", properties: { slug: { type: "string" }, name: { type: "string" }, client: { type: "string" }, keywords: { type: "array", items: { type: "string" } }, cogent_contact_id: { type: "string" }, irt_contact_id: { type: "string" }, ghl_location_id: { type: "string" }, ghl_pit: { type: "string" } }, required: ["slug", "name"] },
     },
     {
       name: "list_projects",

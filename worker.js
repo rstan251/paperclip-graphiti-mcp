@@ -296,6 +296,7 @@ const plugin = definePlugin({
             client: field("Client: "),
             group_id: best.slug,
             confidence: best.score,
+            cogent_contact_id: field("Cogent Contact ID: "),
             irt_contact_id: field("IRT Contact ID: "),
             ghl_location_id: field("GHL Location ID: "),
             ghl_pit: field("GHL PIT: "),
@@ -338,17 +339,21 @@ const plugin = definePlugin({
               items: { type: "string" },
               description: "Matching keywords — practice areas, tech, aliases (e.g. ['bankruptcy', 'milwaukee', 'MKE'])",
             },
+            cogent_contact_id: {
+              type: "string",
+              description: "GHL contact ID in Cogent Marketing CRM (CRM, ads, lead gen)",
+            },
             irt_contact_id: {
               type: "string",
-              description: "GHL contact ID for this client in IRT's own CRM",
+              description: "GHL contact ID in Iron Noodle CRM (blueprints, AI Voice, GetDocs)",
             },
             ghl_location_id: {
               type: "string",
-              description: "Client's own GHL sub-account location ID (if they have one)",
+              description: "Client's own GHL sub-account location ID",
             },
             ghl_pit: {
               type: "string",
-              description: "Client's GHL Private Integration Token (if they have one)",
+              description: "Client's GHL Private Integration Token",
             },
           },
           required: ["slug", "name"],
@@ -360,6 +365,7 @@ const plugin = definePlugin({
           name: params.name,
           client: params.client || null,
           keywords: params.keywords || [],
+          cogent_contact_id: params.cogent_contact_id || null,
           irt_contact_id: params.irt_contact_id || null,
           ghl_location_id: params.ghl_location_id || null,
           ghl_pit: params.ghl_pit || null,
@@ -372,6 +378,7 @@ const plugin = definePlugin({
           `Keywords: ${meta.keywords.join(", ")}`,
           `Group ID: ${meta.slug}`,
         ];
+        if (meta.cogent_contact_id) lines.push(`Cogent Contact ID: ${meta.cogent_contact_id}`);
         if (meta.irt_contact_id) lines.push(`IRT Contact ID: ${meta.irt_contact_id}`);
         if (meta.ghl_location_id) lines.push(`GHL Location ID: ${meta.ghl_location_id}`);
         if (meta.ghl_pit) lines.push(`GHL PIT: ${meta.ghl_pit}`);
