@@ -117,6 +117,63 @@ group_ids: ["nbos"]   (optional)
 max_episodes: 10      (optional)
 ```
 
+### `route_session`
+
+Given a session description, semantically matches it against registered projects and returns the best match. If no match, suggests creating a new project. The CEO agent calls this at the start of every session to auto-scope memory operations.
+
+```
+description: "KPI reporting for Andres Mejer Law"   (required)
+```
+
+Returns:
+```json
+{
+  "match": { "slug": "aml", "name": "Andres Mejer Law", "group_id": "aml" },
+  "alternatives": [...],
+  "message": "Best match: Andres Mejer Law (group_id: aml)"
+}
+```
+
+### `register_project`
+
+Register a new client or project. Creates a metadata entry in Graphiti's `_meta` group so future sessions can be routed to it. The slug becomes the Graphiti `group_id`.
+
+```
+slug: "mke"                                    (required — lowercase, becomes group_id)
+name: "Miller & Miller Law"                    (required)
+client: "Jamie Miller"                         (optional)
+keywords: ["bankruptcy", "milwaukee", "PI"]    (optional — improves matching)
+```
+
+### `list_projects`
+
+List all registered projects available for session routing.
+
+## Session Routing
+
+The plugin includes automatic session-to-project routing. When a new session starts:
+
+1. **CEO calls `route_session`** with the session description or issue title
+2. **Plugin searches `_meta` group** — a dedicated Graphiti namespace storing project registry entries
+3. **Best match returned** — the project slug doubles as the Graphiti `group_id`
+4. **CEO scopes all memory operations** — uses `group_ids: ["<slug>"]` for the rest of the session
+5. **No match?** — CEO asks whether to create a new project via `register_project`
+
+Convention: **project slug = Graphiti group_id = Paperclip project name** (lowercase). This gives every agent client-scoped memory without extra configuration.
+
+### Seeded Projects
+
+| Slug | Client | Keywords |
+|------|--------|----------|
+| `mke` | Miller & Miller Law | bankruptcy, milwaukee, Jamie Miller, PI, workers comp |
+| `aml` | Andres Mejer Law | immigration, NJ, KPI, Jose Miranda, CRM |
+| `wbk` | Westbrook Law Group | Clio, LawPay, MO, Teri Westbrook |
+| `mty` | Martay Law Office | workers comp, PI, Chicago, David Martay, AI Voice |
+| `lpk` | Laputka Law Office | bankruptcy, Easton PA, Charles Laputka |
+| `brd` | Breeden Law Office | divorce, family law, NC, Jonathan Breeden |
+| `wrk` | Work Right Law | employment, sexual harassment, CA, Ash |
+| `nbos` | IRT Internal | infrastructure, Paperclip, tools, deploy |
+
 ## Architecture
 
 ```
