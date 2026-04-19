@@ -217,11 +217,44 @@ const plugin = definePlugin({
           max_nodes: 5,
         });
 
-        const nodes = result?.content?.[0]?.text
-          ? JSON.parse(result.content[0].text)
-          : [];
+        let parsed;
+        try {
+          const text = result?.content?.[0]?.text || "{}";
+          parsed = JSON.parse(text);
+        } catch { parsed = {}; }
+        const nodes = parsed.nodes || parsed || [];
 
-        if (!nodes.length) {
+        if (Array.isArray(nodes) && nodes.length) {
+          const projects = nodes.map((n) => {
+            let meta = {};
+            try { meta = JSON.parse(n.summary || "{}"); } catch { meta = { name: n.name }; }
+            return {
+              slug: meta.slug || n.name?.toLowerCase().replace(/\s+/g, "-"),
+              name: meta.name || n.name,
+              client: meta.client || null,
+              keywords: meta.keywords || [],
+              group_id: meta.slug || n.name?.toLowerCase().replace(/\s+/g, "-"),
+            };
+          });
+          return formatResult({
+            match: projects[0],
+            alternatives: projects.slice(1),
+            message: `Best match: ${projects[0].name} (group_id: ${projects[0].group_id})`,
+          });
+        }
+
+        // Fallback: keyword match against episodes
+        const epResult = await callTool("get_episodes", {
+          group_ids: ["_meta"],
+          max_episodes: 50,
+        });
+        let episodes;
+        try {
+          const epText = epResult?.content?.[0]?.text || "{}";
+          episodes = JSON.parse(epText).episodes || [];
+        } catch { episodes = []; }
+
+        if (!episodes.length) {
           return formatResult({
             match: null,
             message: "No matching project found. Use register_project to create one.",
@@ -229,22 +262,46 @@ const plugin = definePlugin({
           });
         }
 
-        const projects = nodes.map((n) => {
-          let meta = {};
-          try { meta = JSON.parse(n.summary || "{}"); } catch { meta = { name: n.name }; }
-          return {
-            slug: meta.slug || n.name?.toLowerCase().replace(/\s+/g, "-"),
-            name: meta.name || n.name,
-            client: meta.client || null,
-            keywords: meta.keywords || [],
-            group_id: meta.slug || n.name?.toLowerCase().replace(/\s+/g, "-"),
-          };
-        });
+        const query = params.description.toLowerCase();
+        const scored = episodes
+          .map((ep) => {
+            const content = (ep.content || "").toLowerCase();
+            const words = query.split(/\s+/);
+            const hits = words.filter((w) => w.length > 2 && content.includes(w)).length;
+            const slug = (ep.name || "").replace("project:", "");
+            return { slug, content: ep.content, score: hits / words.length, episode: ep };
+          })
+          .filter((s) => s.score > 0)
+          .sort((a, b) => b.score - a.score);
+
+        if (!scored.length) {
+          return formatResult({
+            match: null,
+            message: "No matching project found. Use register_project to create one.",
+            suggestions: episodes.map((ep) => (ep.name || "").replace("project:", "")),
+          });
+        }
+
+        const best = scored[0];
+        const lines = (best.episode.content || "").split("\n");
+        const nameLine = lines.find((l) => l.startsWith("Project:")) || "";
+        const clientLine = lines.find((l) => l.startsWith("Client:")) || "";
 
         return formatResult({
-          match: projects[0],
-          alternatives: projects.slice(1),
-          message: `Best match: ${projects[0].name} (group_id: ${projects[0].group_id})`,
+          match: {
+            slug: best.slug,
+            name: nameLine.replace("Project: ", "").split("(")[0].trim(),
+            client: clientLine.replace("Client: ", "").trim(),
+            group_id: best.slug,
+            confidence: best.score,
+          },
+          alternatives: scored.slice(1, 4).map((s) => ({
+            slug: s.slug,
+            group_id: s.slug,
+            confidence: s.score,
+          })),
+          message: `Best match: ${best.slug} (confidence: ${(best.score * 100).toFixed(0)}%, via episode fallback)`,
+          method: "episode_keyword_fallback",
         });
       }
     );
