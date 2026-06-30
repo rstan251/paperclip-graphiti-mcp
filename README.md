@@ -27,9 +27,9 @@ services:
       - "8000:8000"
     environment:
       - NEO4J_URI=bolt://falkordb:6379
-      - OPENAI_API_KEY=sk-...        # for embeddings
+      - OPENAI_API_KEY=sk-...        # for LLM (embedder uses separate ollama in config.custom.yaml)
       - MODEL_NAME=gpt-4.1-mini      # for entity extraction
-      - EMBEDDING_MODEL=text-embedding-3-small
+      - EMBEDDING_MODEL=nomic-embed-text (via Graphiti config on ironnoodle-vps)
       - GROUP_ID=default
 ```
 
@@ -149,19 +149,22 @@ keywords: ["bankruptcy", "milwaukee", "PI"]    (optional — improves matching)
 
 List all registered projects available for session routing.
 
-## Session Routing
+## Session Routing (2026-06-30 update)
 
-The plugin includes automatic session-to-project routing. When a new session starts:
+The plugin supports per-project routing (via `_meta` + `route_session` / `register_project`). 
 
-1. **CEO calls `route_session`** with the session description or issue title
-2. **Plugin searches `_meta` group** — a dedicated Graphiti namespace storing project registry entries
-3. **Best match returned** — the project slug doubles as the Graphiti `group_id`
-4. **CEO scopes all memory operations** — uses `group_ids: ["<slug>"]` for the rest of the session
-5. **No match?** — CEO asks whether to create a new project via `register_project`
+**Current reality (post Graphiti eval):**
+- Core vault + batch ingest uses single `nbos` group (institutional knowledge).
+- Per-client slugs (mke, aml...) are **available** via plugin for client-scoped memory.
+- Hermes pods use separate groups (e.g. `hr`).
+- See canonical `GRAPHITI-GROUP-STRATEGY.md` (in memory/ and stack docs) for policy + migration.
 
-Convention: **project slug = Graphiti group_id = Paperclip project name** (lowercase). This gives every agent client-scoped memory without extra configuration.
+To activate stronger client isolation:
+- Use `register_project` for clients.
+- Scope tool calls with `group_ids: ["<slug>"]`.
+- Future: drive graphiti-sync ingest from client context.
 
-### Seeded Projects
+### Seeded / Example Projects (plugin)
 
 | Slug | Client | Keywords |
 |------|--------|----------|
@@ -173,6 +176,8 @@ Convention: **project slug = Graphiti group_id = Paperclip project name** (lower
 | `brd` | Breeden Law Office | divorce, family law, NC, Jonathan Breeden |
 | `wrk` | Work Right Law | employment, sexual harassment, CA, Ash |
 | `nbos` | IRT Internal | infrastructure, Paperclip, tools, deploy |
+
+**Core Graphiti group for vault ingest remains `nbos`** (as of 2026-06-30). Plugin gives flexibility for agents.
 
 ## Architecture
 
